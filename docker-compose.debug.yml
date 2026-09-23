@@ -1,0 +1,6 @@
+# Optional overlay: expose panel directly for maintenance.
+# Usage: make debug   (or docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d)
+services:
+  panel:
+    ports:
+      - "3000:3000"

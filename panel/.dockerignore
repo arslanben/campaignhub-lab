@@ -1,0 +1,5 @@
+# keep build context minimal but must include app sources
+**
+!server.py
+!www
+!www/**

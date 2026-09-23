@@ -1,0 +1,7 @@
+# Single source of truth for solution_poc.html is solve/solution_poc.html
+# Build context is the repository root (see docker-compose.yml).
+*
+!attacker/
+!attacker/**
+!solve/
+!solve/solution_poc.html

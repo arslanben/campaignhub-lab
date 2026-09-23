@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — CampaignHub</title>
+  <link rel="stylesheet" href="/assets/panel.css">
+</head>
+<body class="auth-body">
+  <div class="auth-card">
+    <div class="brand">
+      <span class="logo-dot"></span>
+      CampaignHub <small>Admin panel</small>
+    </div>
+    <h1>Sign in</h1>
+    <p class="muted">Continue with your corporate account.</p>
+
+    <form id="login-form" autocomplete="off">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" required
+             placeholder="e.g. viewer">
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required
+             placeholder="••••••••">
+
+      <button type="submit" id="submit-btn">Sign in</button>
+      <p id="err" class="err" hidden></p>
+    </form>
+
+    <div class="hint-box">
+      Lab account — <code>viewer / viewer123</code><br>
+      Campaign manager — <code>admin / Admin!2024</code>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var btn = document.getElementById('submit-btn');
+      var err = document.getElementById('err');
+      btn.disabled = true;
+      err.hidden = true;
+      try {
+        var r = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value
+          })
+        });
+        var data = await r.json();
+        if (!r.ok || !data.result) {
+          err.textContent = data.error || 'Sign-in failed.';
+          err.hidden = false;
+          btn.disabled = false;
+          return;
+        }
+        location.href = data.redirect || '/dashboard/';
+      } catch (ex) {
+        err.textContent = 'Cannot reach the server.';
+        err.hidden = false;
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

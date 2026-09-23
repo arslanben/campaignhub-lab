@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <title>Notion Lift — campaign preview tool</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; max-width: 860px; color: #222; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .sub { color: #666; font-size: 14px; margin-top: 0; }
+    .box {
+      background: #fafafa; border: 1px solid #ddd; border-radius: 6px;
+      padding: 14px 16px; font-size: 14px; line-height: 1.55;
+    }
+    #log {
+      background: #111; color: #0c0; padding: 12px; min-height: 90px;
+      white-space: pre-wrap; font-family: monospace; font-size: 13px;
+      border-radius: 6px; margin-top: 16px;
+    }
+    iframe { border: 1px solid #bbb; width: 100%; height: 480px; margin-top: 16px; background: #fff; }
+    code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+    .todo {
+      border-left: 3px solid #e0a800; padding: 8px 12px;
+      background: #fff8e1; font-size: 13px; margin-top: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Notion Lift</h1>
+  <p class="sub">Fast in-browser previews of landing templates for the content team.</p>
+
+  <div class="box">
+    Paste template links here; the tool posts a message to the panel's
+    HTML Builder component and loads the preview.
+    <br><br>
+    Panel URL: <code id="panel-url">http://localhost:8080/html-builder/</code>
+  </div>
+
+  <div class="todo">
+    TODO (your job): fill in the <code>html</code> field inside
+    <code>buildMessage()</code>. When the message is correct, content
+    runs in the panel origin and lands on the canvas.
+    Do not remove <b>containerStyles</b> — the builder will not render
+    without it.
+  </div>
+
+  <div>
+    <button id="btn-go" type="button">Preview</button>
+  </div>
+
+  <div id="log">// preview log</div>
+
+  <iframe id="f"
+          src="about:blank"
+          referrerpolicy="no-referrer"
+          title="builder"></iframe>
+
+  <script>
+    var logEl = document.getElementById('log');
+    function log(s) { logEl.textContent += '\n' + s; }
+
+    var PANEL = document.getElementById('panel-url').textContent;
+    var f = document.getElementById('f');
+    var loaded = false;
+
+    f.addEventListener('load', function () {
+      loaded = true;
+      log('[iframe] loaded: ' + PANEL);
+      sendPreview();
+    });
+
+    // Skeleton of the message to send. You write the payload in the
+    // html field: a marker plus (optionally) a localStorage / API read.
+    function buildMessage() {
+      return {
+        type: 'NTM_HTML_BUILDER',
+        initial: true,
+        view: {
+          index: 0,
+          name: 'lift-preview',
+          html: /* TODO: payload */ '',
+          extJsUrls: [],
+          extCssUrl: [],
+          elements: [],
+          initial: true,
+          containerStyles: {
+            width: '320px',
+            backgroundColor: '#ffffff',
+            border: '1px solid #c00',
+            borderRadius: '5px'
+          }
+        },
+        widgetType: 'FLOATING_BAR',
+        platform: 'WEB'
+      };
+    }
+
+    function sendPreview() {
+      if (!loaded) { log('[x] iframe is not ready yet'); return; }
+      try {
+        f.contentWindow.postMessage(buildMessage(), '*');
+        log('[send] NTM_HTML_BUILDER sent');
+      } catch (e) {
+        log('[x] ' + e);
+      }
+    }
+
+    document.getElementById('btn-go').addEventListener('click', function () {
+      logEl.textContent = 'preview started';
+      f.src = PANEL; // reload + load event → sendPreview
+    });
+
+    window.addEventListener('message', function (e) {
+      if (e.data && e.data.type === 'NTM_HTML_BUILDER_ACK') {
+        log('[ack] panel replied, frame origin: ' + e.data.frame);
+      } else if (typeof e.data === 'string' && e.data.indexOf('PROOF') === 0) {
+        log('[proof] ' + e.data + '   ← ' + e.origin);
+      }
+    });
+
+    // kick off on first load
+    f.src = PANEL;
+  </script>
+</body>
+</html>

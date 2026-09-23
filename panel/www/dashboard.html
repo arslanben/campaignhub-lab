@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard — CampaignHub</title>
+  <link rel="stylesheet" href="/assets/panel.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="logo">CampaignHub</span>
+    <nav>
+      <a href="/dashboard/">Overview</a>
+      <a href="/html-builder/">HTML Builder</a>
+      <a href="/logout">Sign out</a>
+    </nav>
+    <span class="userchip" id="userchip">…</span>
+  </header>
+
+  <main class="wrap">
+    <div class="page-title">
+      <div>
+        <h1>Overview</h1>
+        <p>Campaign summary for the last 7 days.</p>
+      </div>
+    </div>
+
+    <section class="cards">
+      <div class="card">
+        <h3>Active campaigns</h3>
+        <div class="big" id="m-camp">—</div>
+        <p>Templates ready to send.</p>
+      </div>
+      <div class="card">
+        <h3>Access</h3>
+        <div class="big" id="m-role">—</div>
+        <p>Role on this session.</p>
+      </div>
+      <div class="card">
+        <h3>Widgets</h3>
+        <div class="big" id="m-widgets">—</div>
+        <p>Saved notification widgets.</p>
+      </div>
+    </section>
+
+    <table class="panel-table" id="camp-table" hidden>
+      <thead>
+        <tr><th>ID</th><th>Campaign</th><th>Status</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <p class="footer-note">
+      The HTML Builder component is message-driven; external content is
+      delivered to the builder with <code>postMessage</code>.
+    </p>
+  </main>
+
+  <script>
+    try {
+      localStorage.setItem('campaignhub_app_key', '__FLAG1__');
+    } catch (e) { /* ignore */ }
+
+    (async function init() {
+      try {
+        var r = await fetch('/panel/v2/user/status', { credentials: 'same-origin' });
+        var s = await r.json();
+        if (!s.result) { location.href = '/login'; return; }
+        document.getElementById('userchip').textContent = s.name + ' · ' + s.role;
+        document.getElementById('m-role').textContent = s.role === 'admin' ? 'Administrator' : 'Viewer';
+      } catch (e) {
+        location.href = '/login';
+        return;
+      }
+
+      try {
+        var w = await fetch('/panel/v2/widgets', { credentials: 'same-origin' });
+        var wj = await w.json();
+        document.getElementById('m-widgets').textContent =
+          wj.result ? String(wj.widgets.length) : '—';
+      } catch (e) { /* leave blank */ }
+
+      try {
+        var c = await fetch('/panel/v2/campaigns', { credentials: 'same-origin' });
+        if (c.ok) {
+          var cj = await c.json();
+          if (cj.result) {
+            document.getElementById('m-camp').textContent = cj.campaigns.length;
+            var tb = document.querySelector('#camp-table tbody');
+            cj.campaigns.forEach(function (row) {
+              var tr = document.createElement('tr');
+              tr.innerHTML = '<td>' + row.id + '</td><td>' + row.name +
+                '</td><td><span class="status ' +
+                (row.status === 'active' ? 'on' : 'off') + '">' +
+                row.status + '</span></td>';
+              tb.appendChild(tr);
+            });
+            document.getElementById('camp-table').hidden = false;
+          }
+        }
+      } catch (e) { /* 403 for viewer is expected */ }
+    })();
+  </script>
+</body>
+</html>

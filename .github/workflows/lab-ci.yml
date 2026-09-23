@@ -1,0 +1,40 @@
+name: lab-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  solve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the lab
+        run: docker compose up -d --build
+
+      - name: Wait for the lab
+        run: |
+          for _ in $(seq 1 90); do
+            if curl -fsS http://localhost:8080/healthz >/dev/null 2>&1; then
+              echo "panel healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "lab did not become healthy"
+          docker compose logs
+          exit 1
+
+      - name: Smoke tests
+        run: bash tests/smoke.sh
+
+      - name: Reference solver (SPOILER)
+        run: python3 solve/solve.py
+
+      - name: Dump compose status on failure
+        if: failure()
+        run: |
+          docker compose ps || true
+          docker compose logs --tail=200 || true

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTML Builder — CampaignHub</title>
+  <!--
+    Note: this page deliberately omits X-Frame-Options and
+    Content-Security-Policy. Floating-bar previews are embedded as
+    iframes inside the panel, so framing has to stay open.
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, Arial, sans-serif;
+      background: #eef1f6;
+      color: #1c2430;
+    }
+    header {
+      background: #101a2c;
+      color: #dfe7f5;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      gap: 16px;
+      font-size: 13px;
+    }
+    header .title { font-weight: 700; }
+    header a { color: #b9c6de; text-decoration: none; }
+    header a:hover { color: #fff; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: calc(100vh - 48px);
+    }
+    aside {
+      background: #fff;
+      border-right: 1px solid #e3e8ef;
+      padding: 18px 14px;
+      font-size: 13px;
+    }
+    aside h2 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #6b7685;
+      margin: 0 0 10px;
+    }
+    .block {
+      padding: 9px 10px;
+      border: 1px solid #e3e8ef;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: #f8fafc;
+      color: #3a4656;
+      cursor: default;
+      user-select: none;
+    }
+    .block:hover { border-color: #0b57d0; }
+
+    main { padding: 22px; }
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .toolbar .path {
+      font-size: 13px;
+      color: #6b7685;
+    }
+    .toolbar button {
+      padding: 7px 14px;
+      font-size: 13px;
+      border-radius: 6px;
+      border: 1px solid #d5dbe6;
+      background: #fff;
+      cursor: pointer;
+    }
+    .toolbar button.primary {
+      background: #0b57d0;
+      border-color: #0b57d0;
+      color: #fff;
+      font-weight: 600;
+    }
+    .toolbar button.primary:hover { background: #0847ad; }
+
+    #stage {
+      background: #fff;
+      border: 1px solid #e3e8ef;
+      border-radius: 8px;
+      min-height: 380px;
+      position: relative;
+      overflow: hidden;
+    }
+    #stage-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9aa5b5;
+      font-size: 14px;
+      pointer-events: none;
+    }
+    #canvas { padding: 20px; }
+
+    .statusbar {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #6b7685;
+      display: flex;
+      gap: 18px;
+    }
+    .statusbar b { color: #1c2430; font-weight: 600; }
+
+    #msg-log {
+      margin-top: 16px;
+      background: #0d1117;
+      color: #7ee787;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      min-height: 54px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="title">HTML Builder</span>
+    <a href="/dashboard/">&larr; Dashboard</a>
+    <span style="margin-left:auto;opacity:.7">v2.4.1 · web</span>
+  </header>
+
+  <div class="layout">
+    <aside>
+      <h2>Blocks</h2>
+      <div class="block">Heading</div>
+      <div class="block">Text paragraph</div>
+      <div class="block">Button</div>
+      <div class="block">Image</div>
+      <div class="block">External JS</div>
+      <div class="block">External CSS</div>
+
+      <h2 style="margin-top:22px">Widget type</h2>
+      <div class="block" style="background:#eef4ff;border-color:#b6cbf5">
+        FLOATING_BAR
+      </div>
+    </aside>
+
+    <main>
+      <div class="toolbar">
+        <span class="path">widgets / <b id="wname">new</b></span>
+        <button type="button" id="btn-clear">Clear</button>
+        <button type="button" class="primary" id="btn-save">Save</button>
+      </div>
+
+      <div id="stage">
+        <div id="stage-empty">Preview area — content arrives via <code>postMessage</code></div>
+        <div id="canvas"></div>
+      </div>
+
+      <div class="statusbar">
+        <span>Platform: <b>WEB</b></span>
+        <span>Type: <b>FLOATING_BAR</b></span>
+        <span>Last message: <b id="last-msg">—</b></span>
+      </div>
+
+      <div id="msg-log">// builder message log</div>
+    </main>
+  </div>
+
+  <script>
+    /*
+     * ============================================================
+     *  HTML Builder — message bridge
+     *
+     *  The panel pulls ready-made templates from outside: the home
+     *  page or the campaign editor sends an NTM_HTML_BUILDER message
+     *  to this component and the builder paints view.html on the canvas.
+     *
+     *  windowRenderer: range.createContextualFragment
+     *  (script blocks and inline event handlers therefore run;
+     *   the builder relies on that for live preview.)
+     * ============================================================
+     */
+
+    var canvas = document.getElementById('canvas');
+    var stageEmpty = document.getElementById('stage-empty');
+    var logEl = document.getElementById('msg-log');
+    var lastMsg = document.getElementById('last-msg');
+
+    function logLine(s) {
+      logEl.textContent += '\n' + s;
+    }
+
+    function clearCanvas() {
+      canvas.innerHTML = '';
+      stageEmpty.style.display = '';
+    }
+
+    /**
+     * Writes a view object to the canvas.
+     * containerStyles is mandatory in the builder's launch template —
+     * if it is missing an exception is thrown before render.
+     */
+    function applyView(view) {
+      if (!view || typeof view.html !== 'string') {
+        throw new Error('view.html missing');
+      }
+      if (!view.containerStyles) {
+        throw new Error('containerStyles missing (builder contract)');
+      }
+
+      stageEmpty.style.display = 'none';
+
+      var box = document.createElement('div');
+      var cs = view.containerStyles;
+      box.style.width = cs.width || '320px';
+      box.style.background = cs.backgroundColor || '#fff';
+      box.style.border = cs.border || '1px solid #ccd3de';
+      box.style.borderRadius = cs.borderRadius || '6px';
+      box.style.padding = '14px';
+      box.style.boxShadow = '0 4px 14px rgba(16,26,44,.08)';
+
+      // --- sink: contextual fragment, scripts execute ---
+      var range = document.createRange();
+      var fragment = range.createContextualFragment(view.html);
+      box.appendChild(fragment);
+
+      canvas.appendChild(box);
+
+      if (view.extJsUrls && view.extJsUrls.length) {
+        view.extJsUrls.forEach(function (u) {
+          var s = document.createElement('script');
+          s.src = u;
+          document.body.appendChild(s);
+        });
+      }
+      if (view.extCssUrl && view.extCssUrl.length) {
+        view.extCssUrl.forEach(function (u) {
+          var l = document.createElement('link');
+          l.rel = 'stylesheet';
+          l.href = u;
+          document.head.appendChild(l);
+        });
+      }
+
+      document.getElementById('wname').textContent = view.name || 'new';
+      return box;
+    }
+
+    /*
+     * Main message handler.
+     * Origin validation is intentionally omitted:
+     * the builder runs inside the panel and is also fed by external
+     * editors, so the working assumption is "messages can come from anywhere".
+     */
+    window.addEventListener('message', function (event) {
+      var data = event.data;
+      if (!data || data.type !== 'NTM_HTML_BUILDER') {
+        return;
+      }
+
+      var originInfo = event.origin || '(opaque)';
+      lastMsg.textContent = originInfo;
+      logLine('[recv] origin=' + originInfo +
+              ' name=' + ((data.view && data.view.name) || '?'));
+
+      try {
+        applyView(data.view);
+        logLine('[ok] view rendered, widgetType=' + (data.widgetType || '-'));
+        try {
+          event.source && event.source.postMessage({
+            type: 'NTM_HTML_BUILDER_ACK',
+            ok: true,
+            frame: location.origin
+          }, '*');
+        } catch (e) { /* source may be gone */ }
+      } catch (err) {
+        logLine('[err] ' + err.message);
+      }
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', function () {
+      clearCanvas();
+      logLine('[ui] canvas cleared');
+    });
+
+    document.getElementById('btn-save').addEventListener('click', function () {
+      // In the real panel, save POSTs the canvas HTML as-is.
+      // No sanitization.
+      var html = canvas.innerHTML;
+      fetch('/panel/widget/save', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: document.getElementById('wname').textContent, html: html })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.result) {
+            logLine('[save] widget id=' + d.id +
+                    ' → /panel/widget/preview?id=' + d.id);
+          } else {
+            logLine('[save] failed: ' + JSON.stringify(d));
+          }
+        })
+        .catch(function (e) { logLine('[save] error: ' + e); });
+    });
+
+    // On first open the panel writes the app key into localStorage
+    // (product config lives in the same place in this fictional app)
+    try {
+      localStorage.setItem('campaignhub_app_key', '__FLAG1__');
+    } catch (e) { /* private mode */ }
+
+    logLine('[init] builder ready, waiting for NTM_HTML_BUILDER…');
+  </script>
+</body>
+</html>
